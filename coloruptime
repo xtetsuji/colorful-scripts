@@ -1,0 +1,47 @@
+#!/usr/bin/env perl
+# Usage:
+#   coloruptime
+use strict;
+use warnings;
+use Term::ANSIColor qw(colored);
+use feature qw(signatures);
+no warnings qw(experimental::signatures);
+
+my $NUMBER_OF_CORES;
+BEGIN {
+    my $cores;
+    if ( $^O eq 'darwin' ) {
+        ($cores) = qx{system_profiler SPHardwareDataType} =~ /Total Number of Cores: (\d+)/;
+    }
+    if ( $^O eq 'linux' ) {
+        my @corenums = qx{cat /proc/cpuinfo} =~ /^processor\s*:\s*(\d+)/gm;
+        $cores = @corenums;
+    }
+    $NUMBER_OF_CORES = $cores;
+}
+use constant NUMBER_OF_CORES => $NUMBER_OF_CORES;
+
+#warn "NUMCORE => " . NUMBER_OF_CORES();
+
+sub days_color($days) {
+    return   $days <= 14 ? "green"
+           : $days <= 30 ? "yellow"
+           :               "red";
+}
+
+sub loadavg_color($loadavg) {
+    return   $loadavg < NUMBER_OF_CORES * 3 / 4 ? "green"
+           : $loadavg < NUMBER_OF_CORES         ? "yellow"
+           :                                      "red";
+}
+
+my $uptime = qx{uptime}; # escape from shell alias, maybe
+
+$uptime =~ s/\b(\d+)(?= day)/ colored($1, days_color($1)) /e;
+$uptime =~ s{(?<=load average: )([\d.]+, [\d.]+, [\d.]+)}{
+    join ", ", map {
+        colored($_, loadavg_color($_))
+    } split /, /, $1;
+}e;
+
+print $uptime;
