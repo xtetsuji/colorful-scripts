@@ -1,0 +1,60 @@
+#!/usr/bin/perl
+# xtetsuji 2015/11/05
+
+use v5.10;
+use strict;
+use warnings;
+
+use Term::ANSIColor;
+
+my $syslog_re = qr/^(?<date>\w\w\w [ \d]\d) (?<time>\d\d:\d\d:\d\d) (?<host>\S+) (?<process>\S+): (?<message>.*)/;
+
+my %postfix_status_color = (
+    sent     => "green",
+    deferred => "yellow",
+    bounced  => "on_red white",
+);
+
+my %color = (
+    date    => "cyan",
+    time    => "green",
+    host    => "blue bold",
+    process => "magenta",
+    pid     => "black",
+    message => sub {
+        my ($match, $whole) = @_;
+        if ( $whole->{process} !~ /^postfix/ ) {
+            return $match;
+        } else {
+            $match =~ s/^([A-Z0-9]{9,16})(?=:)/ colored($1, "black on_green") /e;
+            $match =~ s/^(NOQUEUE)(?=:)/ colored($1, "black on_yellow") /e;
+            $match =~ s/(reject:)/ colored($1, "red")/e;
+            if ( my ($status) = $match =~ /\bstatus=(\S+)/ ) {
+                $match =~ s{\bstatus=\S+}{
+                    my $color =  $postfix_status_color{$status} || "black";
+                    colored("status", "blue") . "=" . colored($status, $color);
+                }e;
+                if ( $status eq 'bounced' || $status eq 'deferred' ) {
+                    my $msg_color = +{
+                        bounced  => "red",
+                        deferred => "yellow"
+                    }->{$status};
+                    $match =~ s/(\(.*?\))$/ colored($1, $msg_color) /e;
+                }
+            }
+            return $match;
+        }
+    },
+);
+
+while (<>) {
+    # Nov  1 23:03:21 hostname postfix/pickup[12345]: D24EAA9510B: uid=500 from=<noreply@example.com>
+    s{$syslog_re}{
+        join " ", map {
+              ref $color{$_} eq 'CODE' ? $color{$_}->($+{$_}, +{%+})
+            : $color{$_}               ? colored($+{$_}, $color{$_})
+            : $+{$_}
+        } qw(date time host process message)
+    }e;
+    print;
+}
