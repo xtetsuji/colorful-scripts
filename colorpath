@@ -1,0 +1,69 @@
+#!/usr/bin/env perl
+# Usage:
+#   find $dir -name $name | colorpath
+use v5.20;
+use warnings;
+use feature qw(signatures);
+no warnings qw(experimental::signatures);
+
+if ( !$ENV{LS_COLORS} ) {
+    die "$0\: env LS_COLORS is required\n";
+}
+
+my %rules_of;
+for my $pair (split /:/, $ENV{LS_COLORS}) {
+    my ($file, $code) = split /=/, $pair;
+    if ( $file =~ /^\*\.(?<ext>[\w-]+)$/ ) {
+        $rules_of{ $+{ext} } = $code;
+    }
+    if ( $file =~ /^(?<special>\w+)$/ ) {
+        $rules_of{ ":" . $+{special} } = $code;
+    }
+}
+
+while (<>) {
+    chomp;
+    # say ">>> $_";
+    my ($base, $file) = m{^(.*/)(.*)$};
+    my $fullpath      = $_;
+    # say "   ||| $base /// $file";
+    my ($ext) = $file =~ /\.([^.]+)$/;
+    my $code = $ext ? $rules_of{$ext} : undef;
+    my $type = guess_type($fullpath);
+    if ( $code ) {
+        printf "%s%s\n",
+            ccolor($rules_of{":di"}, $base),
+            ccolor($rules_of{$ext}, $file);
+    } elsif ( $type ) {
+        # https://qiita.com/aosho235/items/6e4737a1eca11c41da9b
+        printf "%s%s\n",
+            ccolor($rules_of{":di"}, $base),
+            ($type ? ccolor($rules_of{$type}, $file) : $file);
+    } else {
+        printf "%s%s\n",
+            ccolor($rules_of{":di"}, $base),
+            $file;
+    }
+}
+
+sub ccolor($code, $string) {
+    return "\e[${code}m$string\e[0m";
+}
+
+sub guess_type($fullpath) {
+    return ":ln" if -l $fullpath;
+    stat($fullpath); # cache to special filehandle "_"
+    my $type = -d _  ? ":di"
+             #: -l _  ? ":ln" # TODO: missing symlink ":mi"
+             : -p _  ? ":pi"
+             : -S _  ? ":so"
+             : -b _  ? ":bd"
+             : -c _  ? ":cd"
+             : -x _  ? ":ex"
+             : -u _  ? ":su"
+             : -g _  ? ":sg"
+             : -k _  ? ":st"
+             : !-e _ ? ":mi"
+             :         undef;
+    return $type;
+}
